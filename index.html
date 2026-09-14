@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PixelBeads · 拼豆图纸生成器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <h1>🧩 PixelBeads</h1>
+      <p>上传照片，一键生成属于你的拼豆图纸</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- 上传区 -->
+    <section class="upload-section card">
+      <div class="upload-area" id="dropZone">
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" hidden>
+        <div class="upload-placeholder" id="uploadPlaceholder">
+          <span class="icon">📁</span>
+          <p>点击或拖拽上传图片</p>
+          <p class="hint">支持 JPG / PNG / WEBP，单张最大 5MB</p>
+          <p class="hint">也可直接粘贴截图</p>
+        </div>
+        <img id="previewImage" class="preview-image hidden" alt="原图预览">
+      </div>
+    </section>
+
+    <!-- 设置面板 -->
+    <section class="settings-panel card">
+      <h2>⚙️ 图纸设置</h2>
+
+      <div class="setting-group">
+        <label>画布尺寸（像素/格）</label>
+        <div class="size-presets">
+          <button class="preset-btn active" data-size="29">29×29</button>
+          <button class="preset-btn" data-size="30">30×30</button>
+          <button class="preset-btn" data-size="40">40×40</button>
+          <button class="preset-btn" data-size="48">48×48</button>
+        </div>
+        <div class="custom-size">
+          <input type="number" id="customWidth" placeholder="宽" min="16" max="256" value="29">
+          <span>×</span>
+          <input type="number" id="customHeight" placeholder="高" min="16" max="256" value="29">
+        </div>
+        <p class="physical-hint" id="physicalHint">约 10cm × 10cm（以 5mm 豆计算）</p>
+      </div>
+
+      <div class="setting-group">
+        <label>色库模式</label>
+        <select id="paletteMode">
+          <option value="smart">智能聚类（推荐）</option>
+          <option value="perler">Perler 色卡</option>
+          <option value="artkal">Artkal 色卡</option>
+          <option value="nabbi">Nabbi 色卡</option>
+          <option value="custom">自定义色盘</option>
+        </select>
+        <div id="customPaletteInput" class="hidden">
+          <textarea id="customColors" placeholder="输入 HEX 色值，每行一个，如：&#10;#FF0000&#10;#00FF00&#10;#0000FF"></textarea>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <label>采样强度 <span id="samplingValue">50</span></label>
+        <input type="range" id="samplingStrength" min="1" max="100" value="50">
+        <p class="hint">数值越高细节越多，但杂色也越多</p>
+      </div>
+
+      <div class="setting-group">
+        <label>色彩简化 <span id="simplifyValue">30</span></label>
+        <input type="range" id="colorSimplify" min="1" max="100" value="30">
+        <p class="hint">数值越高颜色越少，越适合小颗粒拼豆</p>
+      </div>
+
+      <div class="setting-group checkbox-group">
+        <label><input type="checkbox" id="mirrorMode"> 生成镜像/反向图纸</label>
+      </div>
+
+      <button class="generate-btn" id="generateBtn">立即生成</button>
+    </section>
+
+    <!-- 编辑区（生成后显示） -->
+    <section class="editor-section hidden" id="editorSection">
+      <div class="editor-toolbar card">
+        <div class="tool-group">
+          <button class="tool-btn active" data-tool="brush" title="画笔">🖌️</button>
+          <button class="tool-btn" data-tool="fill" title="矩形填充">⬛</button>
+          <button class="tool-btn" data-tool="eraser" title="橡皮擦">🧹</button>
+          <button class="tool-btn" data-tool="picker" title="抓色">💉</button>
+        </div>
+        <div class="tool-group">
+          <label>当前色：</label>
+          <input type="color" id="currentColor" value="#FF0000">
+          <button class="tool-btn" id="clearCanvas">清空</button>
+        </div>
+        <div class="tool-group export-group">
+          <button class="export-btn" data-format="png">导出 PNG</button>
+          <button class="export-btn" data-format="pdf">导出 PDF</button>
+          <button class="export-btn" data-format="excel">导出 Excel</button>
+          <button class="export-btn" data-format="svg">导出 SVG</button>
+        </div>
+      </div>
+
+      <div class="canvas-wrapper card">
+        <div class="canvas-header">
+          <span id="colorCount">共 0 色</span>
+          <span id="beadCount">共 0 颗豆</span>
+        </div>
+        <div class="grid-container" id="gridContainer">
+          <canvas id="beadCanvas"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- 热门榜单占位 -->
+    <section class="ranking-section card">
+      <h2>🏆 本周热门图纸榜单</h2>
+      <p class="hint">生成并导出你的作品后，可分享至社区参与榜单评选</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>PixelBeads · 免费在线拼豆图纸生成工具 · 支持 Perler / Artkal / Nabbi</p>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
