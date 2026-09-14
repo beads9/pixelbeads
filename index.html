@@ -2,15 +2,19 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>PixelBeads · 拼豆图纸生成器</title>
+  <meta name="description" content="免费在线拼豆图纸生成工具，支持MARD/HAMA 264色卡，一键抠图生成图纸">
+  <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🧩</text></svg>">
 </head>
 <body>
   <header class="hero">
     <div class="hero-inner">
       <h1>🧩 PixelBeads</h1>
       <p>上传照片，一键生成属于你的拼豆图纸</p>
+      <p class="hero-sub">支持 MARD / HAMA 官方 264 色卡 · 自动抠图 · 透明背景</p>
     </div>
   </header>
 
@@ -21,9 +25,9 @@
         <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" hidden>
         <div class="upload-placeholder" id="uploadPlaceholder">
           <span class="icon">📁</span>
-          <p>点击或拖拽上传图片</p>
+          <p>点击这里或上传图片即可生成拼豆图纸</p>
           <p class="hint">支持 JPG / PNG / WEBP，单张最大 5MB</p>
-          <p class="hint">也可直接粘贴截图</p>
+          <p class="hint">自动抠出主体，背景透明无需填充</p>
         </div>
         <img id="previewImage" class="preview-image hidden" alt="原图预览">
       </div>
@@ -36,26 +40,26 @@
       <div class="setting-group">
         <label>画布尺寸（像素/格）</label>
         <div class="size-presets">
-          <button class="preset-btn active" data-size="29">29×29</button>
           <button class="preset-btn" data-size="30">30×30</button>
           <button class="preset-btn" data-size="40">40×40</button>
           <button class="preset-btn" data-size="48">48×48</button>
+          <button class="preset-btn" data-size="52">52×52</button>
+          <button class="preset-btn" data-size="64">64×64</button>
         </div>
         <div class="custom-size">
-          <input type="number" id="customWidth" placeholder="宽" min="16" max="256" value="29">
+          <input type="number" id="customWidth" placeholder="宽" min="16" max="256" value="30">
           <span>×</span>
-          <input type="number" id="customHeight" placeholder="高" min="16" max="256" value="29">
+          <input type="number" id="customHeight" placeholder="高" min="16" max="256" value="30">
         </div>
-        <p class="physical-hint" id="physicalHint">约 10cm × 10cm（以 5mm 豆计算）</p>
+        <p class="physical-hint" id="physicalHint">约 15cm × 15cm（以 5mm 豆计算）</p>
       </div>
 
       <div class="setting-group">
-        <label>色库模式</label>
+        <label>色卡模式</label>
         <select id="paletteMode">
-          <option value="smart">智能聚类（推荐）</option>
-          <option value="perler">Perler 色卡</option>
-          <option value="artkal">Artkal 色卡</option>
-          <option value="nabbi">Nabbi 色卡</option>
+          <option value="mard264">MARD 264 色卡（推荐）</option>
+          <option value="hama">HAMA 官方色卡</option>
+          <option value="smart">智能聚类</option>
           <option value="custom">自定义色盘</option>
         </select>
         <div id="customPaletteInput" class="hidden">
@@ -94,14 +98,26 @@
         <div class="tool-group">
           <label>当前色：</label>
           <input type="color" id="currentColor" value="#FF0000">
+          <span id="currentBeadId" class="bead-id">豆号: -</span>
           <button class="tool-btn" id="clearCanvas">清空</button>
         </div>
         <div class="tool-group export-group">
           <button class="export-btn" data-format="png">导出 PNG</button>
+          <button class="export-btn" data-format="jpg">导出 JPG</button>
           <button class="export-btn" data-format="pdf">导出 PDF</button>
           <button class="export-btn" data-format="excel">导出 Excel</button>
           <button class="export-btn" data-format="svg">导出 SVG</button>
         </div>
+      </div>
+
+      <!-- 色号对照表 -->
+      <div class="color-table-section card">
+        <h3>🎨 色号对照表（豆号标注）</h3>
+        <div class="color-table-header">
+          <span>点击色块设为当前色</span>
+          <span id="usedColorCount">已用 0 色</span>
+        </div>
+        <div class="color-table" id="colorTable"></div>
       </div>
 
       <div class="canvas-wrapper card">
@@ -123,11 +139,12 @@
   </main>
 
   <footer>
-    <p>PixelBeads · 免费在线拼豆图纸生成工具 · 支持 Perler / Artkal / Nabbi</p>
+    <p>PixelBeads · 免费在线拼豆图纸生成工具 · 支持 MARD / HAMA 264 色卡</p>
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="mard264.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

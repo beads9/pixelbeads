@@ -46,6 +46,12 @@ body {
   opacity: 0.9;
 }
 
+.hero-sub {
+  font-size: 0.85rem !important;
+  opacity: 0.75 !important;
+  margin-top: 0.5rem;
+}
+
 /* Layout */
 .container {
   max-width: 1200px;
@@ -282,6 +288,15 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 0.9rem;
 }
 
+.bead-id {
+  font-size: 0.85rem;
+  color: var(--primary);
+  font-weight: 600;
+  padding: 0 0.5rem;
+  background: rgba(74, 144, 217, 0.1);
+  border-radius: 4px;
+}
+
 input[type="color"] {
   width: 40px;
   height: 40px;
@@ -309,6 +324,77 @@ input[type="color"] {
 .export-btn:hover {
   background: var(--primary);
   color: white;
+}
+
+/* 色号对照表 */
+.color-table-section {
+  padding: 1rem 1.5rem;
+}
+
+.color-table-section h3 {
+  margin-bottom: 0.75rem;
+  font-size: 1.1rem;
+}
+
+.color-table-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-light);
+}
+
+.color-table {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0.25rem;
+}
+
+.color-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: transform 0.15s;
+  width: 52px;
+}
+
+.color-item:hover {
+  transform: scale(1.1);
+}
+
+.color-item.used .color-swatch {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.color-item.transparent .color-swatch {
+  background: repeating-conic-gradient(#e8e8e8 0% 25%, #ffffff 0% 50%) 50% / 12px 12px !important;
+}
+
+.color-swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.color-name {
+  font-size: 0.6rem;
+  color: var(--text-light);
+  margin-top: 0.25rem;
+  text-align: center;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Canvas */
