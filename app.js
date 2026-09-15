@@ -1,5 +1,5 @@
-// PixelBeads - 拼豆图纸生成器（MARD 264 色卡版）
-// 核心逻辑：图片采样、自动抠图、色彩量化、图纸渲染、编辑与导出
+// PixelBeads - 拼豆图纸生成器（MARD 264 色卡 + 品牌色卡 + 模板库版）
+// 核心逻辑：图片采样、高精度抠图、色彩量化、图纸渲染、编辑与导出
 
 // ========== 全局状态 ==========
 const state = {
@@ -16,7 +16,8 @@ const state = {
   isDrawing: false,
   fillStart: null,
   mirror: false,
-  transparentBg: true     // 背景透明
+  transparentBg: true,    // 背景透明
+  cutoutPrecision: 'balanced' // fast | balanced | precise
 };
 
 // ========== DOM 元素 ==========
@@ -31,6 +32,7 @@ const ctx = beadCanvas.getContext('2d');
 const paletteMode = document.getElementById('paletteMode');
 const customPaletteInput = document.getElementById('customPaletteInput');
 const customColors = document.getElementById('customColors');
+const cutoutPrecision = document.getElementById('cutoutPrecision');
 const samplingStrength = document.getElementById('samplingStrength');
 const colorSimplify = document.getElementById('colorSimplify');
 const samplingValue = document.getElementById('samplingValue');
@@ -45,6 +47,7 @@ const currentColorInput = document.getElementById('currentColor');
 const currentBeadId = document.getElementById('currentBeadId');
 const mirrorMode = document.getElementById('mirrorMode');
 const colorTable = document.getElementById('colorTable');
+const templateGrid = document.getElementById('templateGrid');
 
 // ========== 颜色工具 ==========
 function hexToRgb(hex) {
@@ -72,7 +75,7 @@ function findClosestBead(rgb, palette) {
   let minDist = Infinity;
   let closest = palette[0];
   for (const bead of palette) {
-    if (bead.special === 'transparent') continue; // 透明色不参与映射
+    if (bead.special === 'transparent') continue;
     const dist = colorDistance(rgb, hexToRgb(bead.hex));
     if (dist < minDist) {
       minDist = dist;
@@ -107,45 +110,112 @@ function kMeansPalette(pixels, k) {
       }
     }
   }
-  // 映射到 MARD 色卡
   return centroids.map(c => {
     const hex = rgbToHex(c[0], c[1], c[2]);
     return findClosestBead(c, MARD_264);
   });
 }
 
-// ========== 自动抠图（GrabCut 简化版） ==========
-function autoCutout(imageData) {
+// ========== 高精度自动抠图 ==========
+// 改进：多尺度边缘检测 + 自适应阈值 + 形态学优化 + 边缘羽化
+function autoCutout(imageData, precision = 'balanced') {
   const { width, height, data } = imageData;
   const w = width, h = height;
   
-  // 1. 边缘检测找出主体区域
-  const edgeMap = new Uint8Array(w * h);
+  // 根据精度调整参数
+  const config = {
+    fast:     { edgeThresh: 80, colorThresh: 60, morphIter: 1, feather: 0 },
+    balanced: { edgeThresh: 60, colorThresh: 45, morphIter: 2, feather: 1 },
+    precise:  { edgeThresh: 40, colorThresh: 30, morphIter: 3, feather: 2 }
+  }[precision] || { edgeThresh: 60, colorThresh: 45, morphIter: 2, feather: 1 };
+
+  // 1. 多尺度 Sobel 边缘检测（3x3 + 5x5 融合）
+  const edgeMap = new Float32Array(w * h);
+  
+  // 3x3 Sobel
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
-      const i = (y * w + x) * 4;
-      const gx = Math.abs(data[i] - data[i - 4]) + Math.abs(data[i + 1] - data[i - 3]) + Math.abs(data[i + 2] - data[i - 2]);
-      const gy = Math.abs(data[i] - data[i - w * 4]) + Math.abs(data[i + 1] - data[i - w * 4 + 1]) + Math.abs(data[i + 2] - data[i - w * 4 + 2]);
-      edgeMap[y * w + x] = (gx + gy) > 60 ? 1 : 0;
+      let gx = 0, gy = 0;
+      // Sobel X: [-1 0 1; -2 0 2; -1 0 1]
+      // Sobel Y: [-1 -2 -1; 0 0 0; 1 2 1]
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const i = ((y + dy) * w + (x + dx)) * 4;
+          const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+          const kx = [-1, 0, 1, -2, 0, 2, -1, 0, 1][(dy + 1) * 3 + (dx + 1)];
+          const ky = [-1, -2, -1, 0, 0, 0, 1, 2, 1][(dy + 1) * 3 + (dx + 1)];
+          gx += gray * kx;
+          gy += gray * ky;
+        }
+      }
+      edgeMap[y * w + x] = Math.sqrt(gx * gx + gy * gy);
     }
   }
   
-  // 2. 从边缘膨胀，找出主体 bounding box
-  let minX = w, minY = h, maxX = 0, maxY = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (edgeMap[y * w + x]) {
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
+  // 5x5 高斯模糊后边缘（用于检测柔和边缘）
+  if (precision !== 'fast') {
+    const blurred = new Float32Array(w * h);
+    const gauss = [1, 4, 6, 4, 1];
+    const gaussSum = 256; // (1+4+6+4+1)^2
+    
+    for (let y = 2; y < h - 2; y++) {
+      for (let x = 2; x < w - 2; x++) {
+        let sum = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const i = ((y + dy) * w + (x + dx)) * 4;
+            const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+            sum += gray * gauss[dx + 2] * gauss[dy + 2];
+          }
+        }
+        blurred[y * w + x] = sum / gaussSum;
+      }
+    }
+    
+    // 融合模糊边缘
+    for (let y = 2; y < h - 2; y++) {
+      for (let x = 2; x < w - 2; x++) {
+        const i = y * w + x;
+        const gx = Math.abs(blurred[i] - blurred[i - 1]) + Math.abs(blurred[i] - blurred[i + 1]);
+        const gy = Math.abs(blurred[i] - blurred[i - w]) + Math.abs(blurred[i] - blurred[i + w]);
+        edgeMap[i] = Math.max(edgeMap[i], (gx + gy) * 0.7);
       }
     }
   }
   
-  // 3. 边缘采样估计背景色
+  // 2. 自适应阈值：基于边缘强度直方图
+  const edgeValues = Array.from(edgeMap).filter(v => v > 0).sort((a, b) => a - b);
+  const median = edgeValues[Math.floor(edgeValues.length / 2)] || 50;
+  const adaptiveThresh = Math.max(config.edgeThresh, median * 0.8);
+  
+  const edges = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    edges[i] = edgeMap[i] > adaptiveThresh ? 1 : 0;
+  }
+  
+  // 3. 边缘连接：膨胀桥接断点
+  let dilated = new Uint8Array(edges);
+  for (let iter = 0; iter < config.morphIter; iter++) {
+    const next = new Uint8Array(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (dilated[y * w + x]) {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              next[(y + dy) * w + (x + dx)] = 1;
+            }
+          }
+        }
+      }
+    }
+    dilated = next;
+  }
+  
+  // 4. 背景色估计：K-means 聚类边缘像素
   const bgSamples = [];
-  const margin = Math.max(2, Math.floor(Math.min(w, h) * 0.02));
+  const margin = Math.max(3, Math.floor(Math.min(w, h) * 0.03));
+  
+  // 四边采样
   for (let x = 0; x < w; x++) {
     for (let y = 0; y < margin; y++) {
       const i = (y * w + x) * 4;
@@ -167,31 +237,24 @@ function autoCutout(imageData) {
     }
   }
   
-  // 背景色平均值
-  const bgColor = bgSamples.reduce((acc, c) => [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]], [0, 0, 0])
-    .map(v => v / bgSamples.length);
-  
-  // 4. 膨胀边缘到主体内部
-  const dilated = new Uint8Array(w * h);
-  const kernel = 3;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (edgeMap[y * w + x]) {
-        for (let dy = -kernel; dy <= kernel; dy++) {
-          for (let dx = -kernel; dx <= kernel; dx++) {
-            const ny = y + dy, nx = x + dx;
-            if (ny >= 0 && ny < h && nx >= 0 && nx < w) {
-              dilated[ny * w + nx] = 1;
-            }
-          }
-        }
-      }
-    }
+  // 简单 K-means 找主背景色（k=2，取较大簇）
+  let bgColor;
+  if (bgSamples.length > 10 && precision === 'precise') {
+    const clusters = kMeansPalette(bgSamples, 2);
+    // 用簇大小决定主背景
+    const c1 = bgSamples.filter(p => colorDistance(p, hexToRgb(clusters[0].hex)) < 30).length;
+    const c2 = bgSamples.filter(p => colorDistance(p, hexToRgb(clusters[1].hex)) < 30).length;
+    bgColor = hexToRgb(c1 > c2 ? clusters[0].hex : clusters[1].hex);
+  } else {
+    // 直接平均
+    bgColor = bgSamples.reduce((acc, c) => [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]], [0, 0, 0])
+      .map(v => v / bgSamples.length);
   }
   
-  // 5. 标记主体区域：在 bounding box 内，且颜色与背景差异大
-  const threshold = 45;
-  const result = new Uint8Array(w * h);
+  // 5. 主体标记：边缘内 + 颜色差异
+  const colorThresh = config.colorThresh;
+  let mask = new Uint8Array(w * h);
+  
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
@@ -201,28 +264,71 @@ function autoCutout(imageData) {
         4 * (g - bgColor[1]) ** 2 + 
         3 * (b - bgColor[2]) ** 2
       );
-      // 在边缘膨胀区域内，或者颜色与背景差异大
-      if (dilated[y * w + x] || dist > threshold) {
-        result[y * w + x] = 1;
+      // 边缘膨胀区域内，或者颜色与背景差异大
+      if (dilated[y * w + x] || dist > colorThresh) {
+        mask[y * w + x] = 1;
       }
     }
   }
   
-  // 6. 腐蚀去除噪点
-  const eroded = new Uint8Array(w * h);
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      let sum = 0;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          sum += result[(y + dy) * w + (x + dx)];
+  // 6. 形态学优化：先腐蚀去噪，再膨胀恢复
+  for (let iter = 0; iter < config.morphIter; iter++) {
+    // 腐蚀
+    const eroded = new Uint8Array(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        let sum = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            sum += mask[(y + dy) * w + (x + dx)];
+          }
+        }
+        eroded[y * w + x] = sum >= 5 ? 1 : 0;
+      }
+    }
+    mask = eroded;
+    
+    // 膨胀
+    const dilated2 = new Uint8Array(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (mask[y * w + x]) {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              dilated2[(y + dy) * w + (x + dx)] = 1;
+            }
+          }
         }
       }
-      eroded[y * w + x] = sum >= 5 ? 1 : 0;
+    }
+    mask = dilated2;
+  }
+  
+  // 7. 边缘羽化：高斯模糊 mask 边缘
+  if (config.feather > 0) {
+    const feathered = new Float32Array(w * h);
+    const f = config.feather;
+    for (let y = f; y < h - f; y++) {
+      for (let x = f; x < w - f; x++) {
+        let sum = 0, count = 0;
+        for (let dy = -f; dy <= f; dy++) {
+          for (let dx = -f; dx <= f; dx++) {
+            sum += mask[(y + dy) * w + (x + dx)];
+            count++;
+          }
+        }
+        feathered[y * w + x] = sum / count;
+      }
+    }
+    // 边缘区域保留原值，中心区域用羽化值
+    for (let i = 0; i < w * h; i++) {
+      if (feathered[i] > 0 && feathered[i] < 1) {
+        mask[i] = feathered[i] > 0.5 ? 1 : 0;
+      }
     }
   }
   
-  return { mask: eroded, bgColor };
+  return { mask, bgColor };
 }
 
 // ========== 事件绑定 ==========
@@ -247,6 +353,9 @@ document.addEventListener('paste', e => {
 
 paletteMode.addEventListener('change', () => {
   customPaletteInput.classList.toggle('hidden', paletteMode.value !== 'custom');
+});
+cutoutPrecision.addEventListener('change', () => {
+  state.cutoutPrecision = cutoutPrecision.value;
 });
 samplingStrength.addEventListener('input', () => samplingValue.textContent = samplingStrength.value);
 colorSimplify.addEventListener('input', () => simplifyValue.textContent = colorSimplify.value);
@@ -281,7 +390,6 @@ document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
 });
 currentColorInput.addEventListener('input', e => {
   state.currentColor = e.target.value.toUpperCase();
-  // 查找对应豆号
   const bead = state.palette.find(b => b.hex === state.currentColor);
   state.currentBeadId = bead ? bead.id : '-';
   currentBeadId.textContent = `豆号: ${state.currentBeadId}`;
@@ -328,6 +436,30 @@ function handleFile(file) {
   reader.readAsDataURL(file);
 }
 
+function getPalette() {
+  const mode = paletteMode.value;
+  switch (mode) {
+    case 'mard264': return MARD_264;
+    case 'hama': return HAMA_COLORS;
+    case 'perler': return PERLER_COLORS;
+    case 'artkal': return ARTKAL_COLORS;
+    case 'nabbi': return NABBI_COLORS;
+    case 'perler-mini': return PERLER_MINI_COLORS;
+    case 'custom': {
+      const custom = parseCustomPalette(customColors.value);
+      if (custom.length === 0) {
+        alert('自定义色盘为空，已回退到 MARD 264');
+        paletteMode.value = 'mard264';
+        return MARD_264;
+      }
+      return custom.map((hex, i) => ({ id: `C${i + 1}`, hex, name: '自定义' }));
+    }
+    case 'smart':
+    default:
+      return MARD_264; // smart 会在生成时动态计算
+  }
+}
+
 function generatePattern() {
   if (!state.originalImage) {
     alert('请先上传图片');
@@ -341,24 +473,11 @@ function generatePattern() {
   state.gridWidth = w;
   state.gridHeight = h;
   state.mirror = mirrorMode.checked;
+  state.cutoutPrecision = cutoutPrecision.value;
 
   // 1. 选择色卡
-  let palette = [];
-  if (paletteMode.value === 'mard264') {
-    palette = MARD_264;
-  } else if (paletteMode.value === 'hama') {
-    palette = HAMA_COLORS;
-  } else if (paletteMode.value === 'custom') {
-    const custom = parseCustomPalette(customColors.value);
-    if (custom.length === 0) {
-      alert('自定义色盘为空，已回退到 MARD 264');
-      paletteMode.value = 'mard264';
-      palette = MARD_264;
-    } else {
-      palette = custom.map((hex, i) => ({ id: `C${i + 1}`, hex, name: '自定义' }));
-    }
-  }
-  // smart 模式稍后处理
+  let palette = getPalette();
+  const isSmart = paletteMode.value === 'smart';
 
   // 2. 图片采样到目标尺寸
   const off = document.createElement('canvas');
@@ -371,8 +490,8 @@ function generatePattern() {
   offCtx.drawImage(state.originalImage, (w - sw) / 2, (h - sh) / 2, sw, sh);
   const imageData = offCtx.getImageData(0, 0, w, h);
 
-  // 3. 自动抠图
-  const cutout = autoCutout(imageData);
+  // 3. 高精度自动抠图
+  const cutout = autoCutout(imageData, state.cutoutPrecision);
 
   // 4. 提取主体像素
   const pixels = [];
@@ -381,7 +500,7 @@ function generatePattern() {
   }
 
   // 5. 智能聚类
-  if (paletteMode.value === 'smart') {
+  if (isSmart) {
     const colorCountTarget = Math.max(5, Math.min(30, Math.floor(30 * (1 - colorSimplify.value / 150))));
     palette = kMeansPalette(pixels, colorCountTarget);
   }
@@ -404,7 +523,7 @@ function generatePattern() {
       
       // 抠图：背景区域标记为透明
       if (cutout.mask[idx] === 0 && state.transparentBg) {
-        row.push(null); // 透明
+        row.push(null);
         beadRow.push(null);
       } else {
         const bead = findClosestBead(adjusted, palette);
@@ -437,7 +556,6 @@ function renderCanvas() {
     for (let x = 0; x < w; x++) {
       const color = state.gridData[y][x];
       if (color === null) {
-        // 透明背景：画棋盘格
         ctx.fillStyle = (x + y) % 2 === 0 ? '#e8e8e8' : '#ffffff';
       } else {
         ctx.fillStyle = color;
@@ -455,7 +573,6 @@ function renderColorTable() {
   const usedBeads = new Set();
   state.beadData.flat().forEach(id => { if (id) usedBeads.add(id); });
   
-  // 只显示已使用的颜色，或者全部显示（如果数量不多）
   const showAll = state.palette.length <= 64;
   const beadsToShow = showAll ? state.palette : state.palette.filter(b => usedBeads.has(b.id));
   
@@ -569,7 +686,6 @@ function applyTool(x, y) {
     state.gridData[y][x] = null;
     state.beadData[y][x] = null;
   }
-  // 局部重绘
   const color = state.gridData[y][x];
   if (color === null) {
     ctx.fillStyle = (x + y) % 2 === 0 ? '#e8e8e8' : '#ffffff';
@@ -601,7 +717,6 @@ function exportPNG() {
 }
 
 function exportJPG() {
-  // 白底 JPG
   const temp = document.createElement('canvas');
   temp.width = beadCanvas.width;
   temp.height = beadCanvas.height;
@@ -631,7 +746,6 @@ function exportPDF() {
   const y = margin;
   doc.addImage(beadCanvas.toDataURL('image/png'), 'PNG', x, y, w, h);
 
-  // 色号对照表
   const usedBeads = new Set();
   state.beadData.flat().forEach(id => { if (id) usedBeads.add(id); });
   const beads = state.palette.filter(b => usedBeads.has(b.id));
@@ -702,6 +816,95 @@ function parseCustomPalette(text) {
     .filter(line => /^#[0-9A-Fa-f]{6}$/.test(line));
 }
 
+// ========== 模板库 ==========
+function renderTemplates() {
+  if (!templateGrid) return;
+  templateGrid.innerHTML = '';
+  
+  // 按分类分组
+  const categories = {};
+  TEMPLATES.forEach(t => {
+    if (!categories[t.category]) categories[t.category] = [];
+    categories[t.category].push(t);
+  });
+  
+  Object.entries(categories).forEach(([cat, templates]) => {
+    const catTitle = document.createElement('div');
+    catTitle.className = 'template-category';
+    catTitle.textContent = cat;
+    templateGrid.appendChild(catTitle);
+    
+    templates.forEach(t => {
+      const card = document.createElement('div');
+      card.className = 'template-card';
+      card.innerHTML = `
+        <div class="template-preview" data-template="${t.name}"></div>
+        <div class="template-name">${t.name}</div>
+        <div class="template-size">${t.size[0]}×${t.size[1]}</div>
+      `;
+      
+      // 渲染预览
+      const preview = card.querySelector('.template-preview');
+      const canvas = document.createElement('canvas');
+      canvas.width = t.size[0] * 4;
+      canvas.height = t.size[1] * 4;
+      const pctx = canvas.getContext('2d');
+      
+      t.data.forEach((row, y) => {
+        row.forEach((beadId, x) => {
+          if (beadId) {
+            const bead = MARD_264.find(b => b.id === beadId);
+            if (bead) {
+              pctx.fillStyle = bead.hex;
+              pctx.fillRect(x * 4, y * 4, 4, 4);
+            }
+          }
+        });
+      });
+      
+      preview.appendChild(canvas);
+      card.addEventListener('click', () => loadTemplate(t));
+      templateGrid.appendChild(card);
+    });
+  });
+}
+
+function loadTemplate(template) {
+  const [w, h] = template.size;
+  state.gridWidth = w;
+  state.gridHeight = h;
+  state.palette = MARD_264;
+  
+  state.gridData = [];
+  state.beadData = [];
+  
+  template.data.forEach(row => {
+    const gridRow = [];
+    const beadRow = [];
+    row.forEach(beadId => {
+      if (beadId) {
+        const bead = MARD_264.find(b => b.id === beadId);
+        gridRow.push(bead ? bead.hex : null);
+        beadRow.push(beadId);
+      } else {
+        gridRow.push(null);
+        beadRow.push(null);
+      }
+    });
+    state.gridData.push(gridRow);
+    state.beadData.push(beadRow);
+  });
+  
+  customWidth.value = w;
+  customHeight.value = h;
+  updatePhysicalHint();
+  renderCanvas();
+  renderColorTable();
+  updateStats();
+  editorSection.classList.remove('hidden');
+  editorSection.scrollIntoView({ behavior: 'smooth' });
+}
+
 // ========== PWA 注册 ==========
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -713,3 +916,4 @@ if ('serviceWorker' in navigator) {
 
 // 初始化
 updatePhysicalHint();
+renderTemplates();

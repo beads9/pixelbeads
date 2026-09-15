@@ -59,12 +59,26 @@
         <select id="paletteMode">
           <option value="mard264">MARD 264 色卡（推荐）</option>
           <option value="hama">HAMA 官方色卡</option>
+          <option value="perler">Perler 色卡</option>
+          <option value="artkal">Artkal 色卡</option>
+          <option value="nabbi">Nabbi 色卡</option>
+          <option value="perler-mini">Perler Mini 色卡</option>
           <option value="smart">智能聚类</option>
           <option value="custom">自定义色盘</option>
         </select>
         <div id="customPaletteInput" class="hidden">
           <textarea id="customColors" placeholder="输入 HEX 色值，每行一个，如：&#10;#FF0000&#10;#00FF00&#10;#0000FF"></textarea>
         </div>
+      </div>
+
+      <div class="setting-group">
+        <label>抠图精度</label>
+        <select id="cutoutPrecision">
+          <option value="fast">快速（低精度）</option>
+          <option value="balanced" selected>均衡（推荐）</option>
+          <option value="precise">精细（高精度）</option>
+        </select>
+        <p class="hint">精细模式处理更慢，但边缘更干净</p>
       </div>
 
       <div class="setting-group">
@@ -131,6 +145,13 @@
       </div>
     </section>
 
+    <!-- 图纸模板下载 -->
+    <section class="template-section card">
+      <h2>📥 图纸模板下载</h2>
+      <p class="hint">点击模板直接加载到编辑器，或下载后自行打印</p>
+      <div class="template-grid" id="templateGrid"></div>
+    </section>
+
     <!-- 热门榜单占位 -->
     <section class="ranking-section card">
       <h2>🏆 本周热门图纸榜单</h2>
@@ -145,6 +166,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="mard264.js"></script>
+  <script src="brand-palettes.js"></script>
+  <script src="templates.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

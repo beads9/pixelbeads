@@ -1,10 +1,12 @@
-const CACHE_NAME = 'pixelbeads-v2.0.0';
+const CACHE_NAME = 'pixelbeads-v3.0.0';
 const urlsToCache = [
   './',
   './index.html',
   './style.css',
   './app.js',
   './mard264.js',
+  './brand-palettes.js',
+  './templates.js',
   './manifest.json',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'

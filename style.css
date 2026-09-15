@@ -425,6 +425,81 @@ input[type="color"] {
   cursor: crosshair;
 }
 
+/* 模板下载区 */
+.template-section {
+  text-align: center;
+}
+
+.template-section h2 {
+  margin-bottom: 0.5rem;
+  font-size: 1.3rem;
+}
+
+.template-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.template-category {
+  width: 100%;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--primary);
+  margin-top: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem;
+  background: var(--bg);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  min-width: 100px;
+}
+
+.template-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+
+.template-preview {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.template-preview canvas {
+  image-rendering: pixelated;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.template-name {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.template-size {
+  font-size: 0.75rem;
+  color: var(--text-light);
+}
+
 /* Ranking */
 .ranking-section {
   text-align: center;
